@@ -108,15 +108,29 @@ int getmyMAC(char* buf, char* dev){
 }
 
 
-int chk_relay_condition(char* in_packet){
+int chk_relay_condition(char* in_packet, uint32_t myIP){
 	struct Ethnet_header* eth_hp;
-
-	eth_hp = (struct Ethnet_header*) in_packet;
+	struct Ip4_header* ip4_hp;
 	
-	if( ntohs((*eth_hp).type) == ETHERTYPE_ARP ){
+	eth_hp = (struct Ethnet_header*) in_packet;
+	in_packet += sizeof(struct Ethnet_header);
+	
+	//only IPv4
+	if( ntohs((*eth_hp).type) != ETHERTYPE_IP ){
 		return -1;
 	}
+	//do not relay broadcast
+	char broadcast[] = "\xFF\xFF\xFF\xFF\xFF\xFF";
+	if( !memcmp( (*eth_hp).dstMAC , broadcast , 6 ) ){ 
+		return -2;
+	}
+	//do not relay packet to me
+	if( (*ip4_hp).dst == myIP ){
+		return -3;
+	}
+	//check sender?
 
+	return 1;
 }
 
 int make_relay_packet(char* out_packet, char* in_packet, int size, char* myMAC, char* targetMAC)
