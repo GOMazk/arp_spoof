@@ -107,6 +107,32 @@ int getmyMAC(char* buf, char* dev){
 	return 1;
 }
 
+
+int chk_relay_condition(char* in_packet){
+	struct Ethnet_header* eth_hp;
+
+	eth_hp = (struct Ethnet_header*) in_packet;
+	
+	if( ntohs((*eth_hp).type) == ETHERTYPE_ARP ){
+		return -1;
+	}
+
+}
+
+int make_relay_packet(char* out_packet, char* in_packet, int size, char* myMAC, char* targetMAC)
+{
+	if( sizeof(out_packet) < size ){
+		return -1;
+	}
+
+	memcpy(out_packet,in_packet,size);
+	memcpy(out_packet,targetMAC,6); //dstMAC = targetMAC (=in_packet.srcMAC)
+	memcpy(out_packet+6,myMAC,6); //srcMAC = myMAC
+
+	return 1;
+}
+
+
 int arp_spoof(char* out_packet, char* in_packet, int sender, int target, char* myMAC)
 {
 	struct Ethnet_header* eth_hp;
