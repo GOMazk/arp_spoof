@@ -47,13 +47,49 @@ struct Tcp_header{
 };
 
 
+
 static unsigned char ascii2byte(char *val);
 
 int getmyMAC(char* buf, char* dev);
-int arp_spoof(char* out_packet, char* in_packet,int sender, int target, char* myMAC);
+int getmyIP(char* buf, char* dev);
 int check_arp_type(struct Arp_header *arph, uint16_t htype, uint16_t ptype, uint8_t hlen, uint8_t plen );
 int analyze_packet( char* packet );
 int print_eth(struct Ethnet_header* eth);
 int print_Ip4(struct Ip4_header* iph);
 int print_Tcp(struct Tcp_header* tcph);
 int print_body( uint8_t* start, uint32_t len );
+
+class Attack_session{
+	private:
+		uint32_t senderIP;
+		uint8_t senderMAC[6];
+		uint32_t targetIP;
+		uint8_t targetMAC[6];
+
+		uint32_t myIP;
+		uint8_t myMAC[6];
+
+		int ready;
+
+	public:
+		Attack_session(uint8_t* _senderIPstr, uint8_t* _targetIPstr, uint8_t* _myIPstr, uint8_t* _myMAC);
+
+		Attack_session(uint8_t* _senderIPstr, uint8_t* _targetIPstr, uint32_t _myIP, uint8_t* _myMAC);
+
+		~Attack_session(){
+
+		}
+
+		int send_true_request(char* out_packet, int whom_1sender_2target);
+		int recv_true_reply(char* in_packet);
+		
+		int send_false_request(char* out_packet);
+		int recv_request(char* out_packet, char* in_packet);
+
+		int chk_relay_condition(char* in_packet);
+		int make_relay_packet(char* out_packet, char* in_packet, int size);
+
+		int is_ready();
+		void print_me();
+};
+

