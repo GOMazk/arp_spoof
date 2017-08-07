@@ -9,5 +9,5 @@ main.o: main.cpp
 packetheader.o: packetheader.cpp
 
 clean:
-	rm -f send_arp
+	rm -f arp_spoof
 	rm -f *.o

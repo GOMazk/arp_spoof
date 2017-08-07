@@ -167,7 +167,7 @@ int Attack_session::chk_relay_condition(char* in_packet){
 		return -3;
 	}
 	//check senderMAC
-	if( memcmp((*eth_hp).srcMac,senderMAC) ){
+	if( memcmp((*eth_hp).srcMac,senderMAC,6) ){
 		return -4;
 	}
 
@@ -176,7 +176,7 @@ int Attack_session::chk_relay_condition(char* in_packet){
 
 int Attack_session::make_relay_packet(char* out_packet, char* in_packet, int size){
 
-	if( sizeof(out_packet) < size ){
+	if( size > 65516 ){
 		return -1;
 	}
 
@@ -230,10 +230,10 @@ int Attack_session::recv_true_reply(char* in_packet){
 	if( ntohs((*arp_hp).op)!=2 ){
 		return -3;
 	}
-	if( !memcmp((*arp_hp).targetIP , myIP ) ){ //packet to me
-		if( !memcmp((*arp_hp).senderIP , senderIP) )
+	if( (*arp_hp).targetIP == myIP ){ //packet to me
+		if( (*arp_hp).senderIP == senderIP )
 			memcpy(senderMAC, (*arp_hp).senderMAC, 6);
-		if( !memcmp((*arp_hp).senderIP , targetIP) )
+		if( (*arp_hp).senderIP == targetIP )
 			memcpy(targetMAC, (*arp_hp).senderMAC, 6);
 		return 1;
 	}
@@ -310,7 +310,7 @@ void Attack_session::print_me(){
 int Attack_session::is_ready(){
 	if( ready > 0 ) return ready;
 	
-	char blank = "\x00\x00\x00\x00\x00\x00";
+	char blank[] = "\x00\x00\x00\x00\x00\x00";
 	if( memcmp(blank,senderMAC,6) && memcmp(blank,targetMAC,6) )
 		ready = 1;
 	return ready;
