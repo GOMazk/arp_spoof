@@ -104,21 +104,7 @@ int main(int argc, char *argv[])
 							pcap_sendpacket(handle,send,header->len);
 						}
 					}
-					
-					
 				}
-				/*
-				if( arp_spoof((char*)send, (char*)packet, sender, target, myMAC) == 1){
-					printf("catched request, sending reply\n");
-					if (pcap_sendpacket(handle, send, 42) != 0){
-						fprintf(stderr,"\nError sending the packet: %s\n", pcap_geterr(handle));
-					}
-					else{
-						for(temp=0;temp<10;temp++)
-							pcap_sendpacket(handle, send, 42);
-					}
-				}
-				*/
 				break;
 			case 0:
 				break;
