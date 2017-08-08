@@ -32,7 +32,7 @@ int main(int argc, char *argv[])
 	unsigned int session_num;
 	Attack_session** session_list;
 	
-	if(argc < 4 or argc%2 == 1){ 
+	if(argc<4 && argc&1 ){ 
 		printf("usasge: ./send_arp [device] [sender ip] [target ip] ([sender ip] [target ip])\n");
 		return(2);
 	}
